@@ -6,6 +6,7 @@ import time
 import os
 import copy
 import json
+from tqdm import tqdm
 
 # Configuration
 DATA_DIR = "data/covid19"
@@ -18,7 +19,7 @@ LEARNING_RATE = 0.001
 def train_model():
     # Device Agnostic Code
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"🚀 Starting training on device: {device}")
+    print(f"Starting training on device: {device}")
 
     # Data Augmentation & Normalization
     data_transforms = {
@@ -39,15 +40,12 @@ def train_model():
     # Load Data
     full_dataset = datasets.ImageFolder(DATA_DIR, data_transforms['train'])
     class_names = full_dataset.classes
-    print(f"📂 Classes found: {class_names}")
+    print(f"Classes found: {class_names}")
 
     # Split Train/Val (80/20)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
-    
-    # Apply val transforms (hacky way since random_split doesn't support separate transforms easily, 
-    # but CenterCrop is deterministic so it's fine for this baseline)
     
     dataloaders = {
         'train': torch.utils.data.DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0),
@@ -56,7 +54,7 @@ def train_model():
     dataset_sizes = {'train': len(train_dataset), 'val': len(val_dataset)}
 
     # Initialize Model (MobileNetV3-Large)
-    print("🏗️  Loading MobileNetV3-Large...")
+    print("Loading MobileNetV3-Large...")
     model = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
     
     # Modify Classifier for 3 classes
@@ -86,8 +84,10 @@ def train_model():
             running_loss = 0.0
             running_corrects = 0
 
-            # Iterate over data
-            for inputs, labels in dataloaders[phase]:
+            # Wrap dataloader with tqdm
+            loop = tqdm(dataloaders[phase], desc=f"{phase} Phase", leave=False)
+
+            for inputs, labels in loop:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -104,6 +104,9 @@ def train_model():
 
                 running_loss += loss.item() * inputs.size(0)
                 running_corrects += torch.sum(preds == labels.data)
+                
+                # Update progress bar
+                loop.set_postfix(loss=loss.item())
 
             epoch_loss = running_loss / dataset_sizes[phase]
             epoch_acc = running_corrects.double() / dataset_sizes[phase]
@@ -122,13 +125,13 @@ def train_model():
                 best_model_wts = copy.deepcopy(model.state_dict())
 
     time_elapsed = time.time() - since
-    print(f'\n🏁 Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
-    print(f'⭐ Best Val Acc: {best_acc:4f}')
+    print(f'\nTraining complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s')
+    print(f'Best Val Acc: {best_acc:4f}')
 
     # Save Model
     model.load_state_dict(best_model_wts)
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
-    print(f"💾 Model saved to {MODEL_SAVE_PATH}")
+    print(f"Model saved to {MODEL_SAVE_PATH}")
     
     # Save Metrics
     with open(METRICS_SAVE_PATH, 'w') as f:
