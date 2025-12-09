@@ -11,10 +11,10 @@ def test_health():
         response = requests.get(f"{BASE_URL}/health")
         response.raise_for_status()
         data = response.json()
-        print(f"✅ Health check: {data['status']}")
+        print(f"Health check: {data['status']}")
         return True
     except Exception as e:
-        print(f"❌ Health check failed: {e}")
+        print(f"Health check failed: {e}")
         return False
 
 def test_single_classification():
@@ -37,11 +37,11 @@ def test_single_classification():
         data = response.json()
         duration = (time.time() - start_time) * 1000
         
-        print(f"✅ Prediction: {data['predicted_class']} (Conf: {data['confidence']:.2f})")
-        print(f"✅ Response time: {duration:.2f}ms")
+        print(f"Prediction: {data['predicted_class']} (Conf: {data['confidence']:.2f})")
+        print(f"Response time: {duration:.2f}ms")
         return True
     except Exception as e:
-        print(f"❌ Classification failed: {e}")
+        print(f"Classification failed: {e}")
         print(response.text if 'response' in locals() else "")
         return False
 
@@ -52,8 +52,8 @@ if __name__ == "__main__":
     class_ok = test_single_classification()
     
     if health_ok and class_ok:
-        print("\n🎉 All tests passed!")
+        print("\nAll tests passed!")
         sys.exit(0)
     else:
-        print("\n❌ Some tests failed.")
+        print("\nSome tests failed.")
         sys.exit(1)

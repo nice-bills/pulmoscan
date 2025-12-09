@@ -7,8 +7,13 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.124.0",
     "pandas>=2.3.3",
+    "psycopg2>=2.9.11",
+    "pydantic-settings>=2.12.0",
     "python-multipart>=0.0.20",
+    "redis>=7.1.0",
+    "requests>=2.32.5",
     "scikit-learn>=1.7.2",
+    "sqlalchemy>=2.0.44",
     "torch>=2.9.1",
     "torchvision>=0.24.1",
     "tqdm>=4.67.1",
