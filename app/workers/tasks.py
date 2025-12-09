@@ -7,7 +7,9 @@ from app.database import SessionLocal
 from app.models import Job, Prediction, JobStatus
 from app.utils.hash_utils import calculate_image_hash
 from sqlalchemy.orm import Session
+from typing import List
 import logging
+from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +24,22 @@ def process_single_image(self, image_path: str, job_id: str):
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
             logger.error(f"Job {job_id} not found.")
-            return
+            return JobStatus.FAILED # Indicate failure
         
+        # Only transition from PENDING to PROCESSING once
         if job.status == JobStatus.PENDING:
             job.status = JobStatus.PROCESSING
             job.started_at = func.now()
-            db.commit()
+            db.commit() # Commit status change immediately
+            db.refresh(job)
 
         # 2. Load Image
         if not os.path.exists(image_path):
             logger.error(f"Image not found: {image_path}")
-            # Handle error
-            return
+            job.failed_images += 1
+            job.processed_images += 1
+            db.commit()
+            return JobStatus.FAILED
 
         with open(image_path, "rb") as f:
             image_bytes = f.read()
@@ -61,7 +67,7 @@ def process_single_image(self, image_path: str, job_id: str):
             prediction_data = {
                 "class": result["class"],
                 "confidence": result["confidence"],
-                "top_3_classes": result.get("top_3_classes", []) # Assuming model returns this
+                "top_3_classes": result.get("top_3_classes", [])
             }
             
             # Cache the result
@@ -86,11 +92,11 @@ def process_single_image(self, image_path: str, job_id: str):
         job.processed_images += 1
         if job.total_images > 0:
             job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
-
-        # Mark as completed if this was the only image (simplification for single image task)
-        # For batch processing, we'd check if processed == total
-        job.status = JobStatus.COMPLETED
-        job.completed_at = func.now()
+        
+        # For a single image task, mark job completed here if it's the only one
+        if job.processed_images + job.failed_images == job.total_images:
+            job.status = JobStatus.COMPLETED if job.failed_images == 0 else JobStatus.FAILED
+            job.completed_at = func.now()
         
         db.commit()
         
@@ -101,13 +107,178 @@ def process_single_image(self, image_path: str, job_id: str):
         }
 
     except Exception as e:
-        logger.error(f"Error processing image: {e}")
+        logger.error(f"Error processing single image for job {job_id}: {e}")
         db.rollback()
-        # Update job with failure
-        # job.failed_images += 1
-        # db.commit()
+        # Ensure job stats are updated even on unhandled error
+        job = db.query(Job).filter(Job.id == job_id).first() # Re-fetch job if rollback occurred
+        if job:
+            job.failed_images += 1
+            job.processed_images += 1
+            if job.total_images > 0:
+                job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
+            if job.processed_images + job.failed_images == job.total_images:
+                job.status = JobStatus.FAILED
+                job.completed_at = func.now()
+            db.commit()
         raise e
     finally:
         db.close()
 
-from sqlalchemy.sql import func
+
+@shared_task(bind=True)
+def process_batch_images(self, image_paths: List[str], job_id: str):
+    """
+    Process a batch of images asynchronously.
+    """
+    db = SessionLocal()
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            logger.error(f"Batch Job {job_id} not found.")
+            return JobStatus.FAILED
+
+        # Only transition from PENDING to PROCESSING once
+        if job.status == JobStatus.PENDING:
+            job.status = JobStatus.PROCESSING
+            job.started_at = func.now()
+            db.commit()
+            db.refresh(job)
+
+        images_to_infer_bytes = []
+        images_to_infer_metadata = [] # Stores (original_path, hash) for non-cached images
+        predictions_to_save_db = []
+        
+        total_images_in_batch = len(image_paths)
+        current_processed = 0
+        current_failed = 0
+        current_cached = 0
+
+        for original_path in image_paths:
+            image_filename = os.path.basename(original_path)
+            image_bytes = None
+            image_hash = None
+            
+            try:
+                if not os.path.exists(original_path):
+                    raise FileNotFoundError(f"Image not found: {original_path}")
+
+                with open(original_path, "rb") as f:
+                    image_bytes = f.read()
+                
+                image_hash = calculate_image_hash(image_bytes)
+                cached_result = cache.get_prediction(image_hash)
+
+                if cached_result:
+                    prediction_data = {
+                        "class": cached_result["class"],
+                        "confidence": cached_result["confidence"],
+                        "top_3_classes": cached_result.get("top_3_classes", []),
+                        "processing_time_ms": 0.0, # Cached, instant
+                        "from_cache": True
+                    }
+                    predictions_to_save_db.append(Prediction(
+                        job_id=job_id,
+                        image_filename=image_filename,
+                        image_hash=image_hash,
+                        predicted_class=prediction_data["class"],
+                        confidence=prediction_data["confidence"],
+                        top_3_classes=prediction_data["top_3_classes"],
+                        processing_time_ms=prediction_data["processing_time_ms"],
+                        from_cache=True
+                    ))
+                    current_cached += 1
+                else:
+                    images_to_infer_bytes.append(image_bytes)
+                    images_to_infer_metadata.append({
+                        "original_path": original_path,
+                        "image_filename": image_filename,
+                        "image_hash": image_hash
+                    })
+
+            except Exception as e:
+                logger.error(f"Error processing image {original_path} for batch job {job_id}: {e}")
+                current_failed += 1
+                # Optionally, save a 'failed' prediction record
+                predictions_to_save_db.append(Prediction(
+                    job_id=job_id,
+                    image_filename=image_filename if image_filename else "unknown",
+                    image_hash=image_hash if image_hash else "error",
+                    predicted_class="FAILED",
+                    confidence=0.0,
+                    top_3_classes=[],
+                    processing_time_ms=0.0,
+                    from_cache=False # Not from cache, failed during processing
+                ))
+            
+            current_processed += 1
+            # Commit intermediate progress to avoid long transactions and provide updates
+            job.processed_images = current_processed
+            job.failed_images = current_failed
+            job.cached_images = current_cached
+            if job.total_images > 0:
+                job.cache_hit_rate = (job.cached_images / job.processed_images) * 100 if job.processed_images > 0 else 0.0
+            db.commit()
+            db.refresh(job)
+
+        # Perform Batch Inference for non-cached images
+        if images_to_infer_bytes:
+            batch_inference_results = classifier.predict_batch(images_to_infer_bytes)
+            
+            for i, result in enumerate(batch_inference_results):
+                metadata = images_to_infer_metadata[i]
+                
+                prediction_data = {
+                    "class": result["class"],
+                    "confidence": result["confidence"],
+                    "top_3_classes": result.get("top_3_classes", []),
+                    "processing_time_ms": result["inference_time"],
+                    "from_cache": False
+                }
+                
+                # Cache the new result
+                cache_data = prediction_data.copy()
+                cache_data["cached_at"] = time.time()
+                cache.set_prediction(metadata["image_hash"], cache_data)
+
+                predictions_to_save_db.append(Prediction(
+                    job_id=job_id,
+                    image_filename=metadata["image_filename"],
+                    image_hash=metadata["image_hash"],
+                    predicted_class=prediction_data["class"],
+                    confidence=prediction_data["confidence"],
+                    top_3_classes=prediction_data["top_3_classes"],
+                    processing_time_ms=prediction_data["processing_time_ms"],
+                    from_cache=False
+                ))
+
+        # Add all collected predictions to the session
+        db.add_all(predictions_to_save_db)
+
+        # Final Job Status Update
+        job.processed_images = len(image_paths) # All images were attempted
+        job.failed_images = current_failed
+        job.cached_images = current_cached
+        if job.total_images > 0:
+             job.cache_hit_rate = (job.cached_images / job.processed_images) * 100 if job.processed_images > 0 else 0.0
+        
+        job.status = JobStatus.COMPLETED if current_failed == 0 else (
+            JobStatus.FAILED if current_failed == total_images_in_batch else JobStatus.COMPLETED # Partially completed implies completed with some failures
+        )
+        job.completed_at = func.now()
+        db.commit()
+        
+        return job.status.value
+
+    except Exception as e:
+        logger.error(f"Unhandled error in batch job {job_id}: {e}")
+        db.rollback()
+        job = db.query(Job).filter(Job.id == job_id).first() # Re-fetch in case of rollback
+        if job:
+            job.status = JobStatus.FAILED
+            job.completed_at = func.now()
+            db.commit()
+        raise e
+    finally:
+        db.close()
+
+

@@ -62,4 +62,49 @@ class COVIDClassifier:
             "inference_time": t1 - t0
         }
 
+    def predict_batch(self, image_bytes_list: list[bytes]):
+        """
+        Predict a batch of images.
+        args:
+            image_bytes_list: List of image bytes.
+        returns:
+            List of dictionaries containing class, confidence, and amortized inference_time.
+        """
+        if self.model is None:
+            raise RuntimeError("Model is not loaded.")
+
+        if not image_bytes_list:
+            return []
+
+        t0 = time.time()
+        
+        tensors = []
+        for img_bytes in image_bytes_list:
+            image = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+            tensors.append(self.transforms(image))
+        
+        # Stack into a batch tensor: (Batch_Size, C, H, W)
+        batch_tensor = torch.stack(tensors).to(self.device)
+
+        with torch.no_grad():
+            outputs = self.model(batch_tensor)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
+            confidences, predicted_idxs = torch.max(probabilities, 1)
+
+        t1 = time.time()
+        # Amortized time per image in the batch
+        amortized_inference_time = (t1 - t0) * 1000 / len(image_bytes_list) 
+
+        results = []
+        for i in range(len(image_bytes_list)):
+            # Populate top_3_classes if needed, for now just the top one
+            results.append({
+                "class": CLASSES[predicted_idxs[i].item()],
+                "confidence": float(confidences[i].item()),
+                "top_3_classes": [], # Placeholder, to be populated later if needed
+                "inference_time": amortized_inference_time
+            })
+            
+        return results
+
 classifier = COVIDClassifier()

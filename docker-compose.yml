@@ -62,24 +62,24 @@ services:
     depends_on:
       - redis
 
-  # Celery Worker
-  celery_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: pulmoscan-celery-worker
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
-    volumes:
-      - .:/app
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://pulmoscan:pulmoscan_password@postgres:5432/pulmoscan
-      - MODEL_PATH=/app/models/covid/mobilenetv3_best.pth
-      - DEVICE=cpu
-      - CACHE_ENABLED=True
-    depends_on:
-      - redis
-      - postgres
+  # # Celery Worker (Temporarily commented out due to build issues)
+  # celery_worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: pulmoscan-celery-worker
+  #   command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+  #   volumes:
+  #     - .:/app
+  #   environment:
+  #     - REDIS_URL=redis://redis:6379/0
+  #     - DATABASE_URL=postgresql://pulmoscan:pulmoscan_password@postgres:5432/pulmoscan
+  #     - MODEL_PATH=/app/models/covid/mobilenetv3_best.pth
+  #     - DEVICE=cpu
+  #     - CACHE_ENABLED=True
+  #   depends_on:
+  #     - redis
+  #     - postgres
 
 
 volumes:
