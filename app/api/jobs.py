@@ -1,18 +1,89 @@
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Job, Prediction
-from app.schemas import JobResponse, PredictionResponse
+from app.models import Job, Prediction, JobStatus
+from app.schemas import JobResponse, PredictionResponse, JobCreate
 from app.services.model import classifier
 from app.services.cache import cache
 from app.utils.image_utils import validate_image
 from app.utils.hash_utils import calculate_image_hash
+from app.workers.tasks import process_batch_images
 import uuid
 import time
 import json
+import shutil
+import os
+import zipfile
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
+
+@router.post("/batch", status_code=202)
+async def batch_classify_images(
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
+):
+    """
+    Upload a ZIP file containing multiple images for batch classification.
+    """
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="File must be a .zip archive.")
+
+    # 1. Create Job ID and Temp Directory
+    job_id = str(uuid.uuid4())
+    upload_dir = os.path.join("data", "uploads", job_id)
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    zip_path = os.path.join(upload_dir, "upload.zip")
+
+    try:
+        # 2. Save Uploaded ZIP
+        with open(zip_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # 3. Extract ZIP
+        extracted_images = []
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(upload_dir)
+            
+            # 4. Filter for valid images
+            for root, dirs, files in os.walk(upload_dir):
+                for filename in files:
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg')) and not filename.startswith('.'):
+                        full_path = os.path.join(root, filename)
+                        extracted_images.append(os.path.abspath(full_path))
+        
+        if not extracted_images:
+            shutil.rmtree(upload_dir)
+            raise HTTPException(status_code=400, detail="No valid images found in ZIP.")
+
+        # 5. Create Job Record
+        job = Job(
+            id=job_id,
+            status=JobStatus.PENDING,
+            total_images=len(extracted_images)
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+
+        # 6. Dispatch Celery Task
+        process_batch_images.delay(extracted_images, job_id)
+
+        return {
+            "job_id": job_id,
+            "message": "Batch processing started.",
+            "images_queued": len(extracted_images),
+            "status_url": f"/api/v1/jobs/{job_id}"
+        }
+
+    except zipfile.BadZipFile:
+        shutil.rmtree(upload_dir)
+        raise HTTPException(status_code=400, detail="Invalid ZIP file.")
+    except Exception as e:
+        if os.path.exists(upload_dir):
+            shutil.rmtree(upload_dir)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/classify", response_model=PredictionResponse)
 async def classify_image(file: UploadFile = File(...)):

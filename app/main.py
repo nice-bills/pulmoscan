@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from app.api import health, jobs
 from app.database import Base, engine
 from app.config import settings
+from app.workers.celery_app import celery_app # Ensure Celery app is loaded
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
