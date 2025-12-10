@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Job, Prediction, JobStatus
@@ -15,8 +16,47 @@ import json
 import shutil
 import os
 import zipfile
+import io
+import pandas as pd
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
+
+@router.get("/{job_id}/results/download")
+def export_job_results(job_id: str, db: Session = Depends(get_db)):
+    """
+    Export job results as a CSV file.
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    predictions = db.query(Prediction).filter(Prediction.job_id == job_id).all()
+    
+    if not predictions:
+        raise HTTPException(status_code=404, detail="No predictions found for this job")
+
+    # Create DataFrame
+    data = []
+    for p in predictions:
+        data.append({
+            "filename": p.image_filename,
+            "predicted_class": p.predicted_class,
+            "confidence": p.confidence,
+            "top_classes": json.dumps(p.top_3_classes),
+            "processing_time_ms": p.processing_time_ms,
+            "from_cache": p.from_cache
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Create CSV in memory
+    stream = io.StringIO()
+    df.to_csv(stream, index=False)
+    
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename=job_{job_id}_results.csv"
+    
+    return response
 
 @router.post("/batch", status_code=202)
 async def batch_classify_images(

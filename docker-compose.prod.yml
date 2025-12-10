@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pulmoscan-postgres-prod
+    environment:
+      POSTGRES_USER: pulmoscan
+      POSTGRES_PASSWORD: pulmoscan_password
+      POSTGRES_DB: pulmoscan
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulmoscan"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache & Broker
+  redis:
+    image: redis:7-alpine
+    container_name: pulmoscan-redis-prod
+    volumes:
+      - redis_data_prod:/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Object Storage (Self-hosted S3)
+  minio:
+    image: minio/minio
+    container_name: pulmoscan-minio-prod
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data_prod:/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Web API
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulmoscan-api-prod
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://pulmoscan:pulmoscan_password@postgres:5432/pulmoscan
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=pulmoscan-images
+      - MODEL_PATH=models/covid/mobilenetv3.onnx # Use ONNX model in prod
+      - CACHE_ENABLED=True
+      - DEBUG=False
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: always
+
+  # Celery Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulmoscan-worker-prod
+    # Use prefork pool on Linux/Docker for true parallelism
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - DATABASE_URL=postgresql://pulmoscan:pulmoscan_password@postgres:5432/pulmoscan
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=pulmoscan-images
+      - MODEL_PATH=models/covid/mobilenetv3.onnx # Use ONNX model in prod
+      - CACHE_ENABLED=True
+      - DEBUG=False
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: always
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:
+  minio_data_prod:
