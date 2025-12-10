@@ -158,9 +158,9 @@ if __name__ == "__main__":
         if single_time and batch_time:
             if batch_time < single_time:
                 speedup = single_time / batch_time
-                print(f"\n✅ Batch processing was {speedup:.2f}x faster than single processing!")
+                print(f"\nBatch processing was {speedup:.2f}x faster than single processing!")
             else:
-                print("\n❌ Single processing was faster or equal to batch processing.")
+                print("\nSingle processing was faster or equal to batch processing.")
 
     finally:
         # Cleanup

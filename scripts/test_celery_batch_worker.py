@@ -68,7 +68,7 @@ def test_batch_worker():
             time.sleep(2)
             
     if not task_dispatched:
-        print("   ❌ Failed to dispatch task.")
+        print("   Failed to dispatch task.")
         return
 
     # 4. Monitor
@@ -85,22 +85,22 @@ def test_batch_worker():
         print(f"   [{i+1}/{max_retries}] Job Status: {status} | Processed: {processed}/{num_images}")
         
         if status == JobStatus.COMPLETED:
-            print("\n✅ SUCCESS: Job marked as COMPLETED!")
+            print("\nSUCCESS: Job marked as COMPLETED!")
             
             # Verify predictions count
             pred_count = db.query(Prediction).filter(Prediction.job_id == job_id).count()
             print(f"   Predictions found in DB: {pred_count}")
             
             if pred_count == num_images:
-                 print("   ✅ Prediction count matches total images.")
+                 print("       Prediction count matches total images.")
                  success = True
             else:
-                 print(f"   ❌ Prediction count mismatch! Expected {num_images}, got {pred_count}")
+                 print(f"      Prediction count mismatch! Expected {num_images}, got {pred_count}")
             
             db.close()
             break
         elif status == JobStatus.FAILED:
-            print("\n❌ FAILURE: Job marked as FAILED.")
+            print("\nFAILURE: Job marked as FAILED.")
             db.close()
             break
             
@@ -108,7 +108,7 @@ def test_batch_worker():
         time.sleep(1)
 
     if not success:
-        print("\n⚠️ TIMEOUT: Job did not complete in time.")
+        print("\nTIMEOUT: Job did not complete in time.")
 
     # 5. Cleanup
     print("5. Cleaning up...")

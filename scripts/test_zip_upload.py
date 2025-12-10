@@ -94,9 +94,9 @@ def test_zip_upload():
     print("   Cleanup complete.")
 
     if job_completed:
-        print("\n✅ ZIP Upload Test PASSED!")
+        print("\nZIP Upload Test PASSED!")
     else:
-        print("\n❌ ZIP Upload Test FAILED!")
+        print("\nZIP Upload Test FAILED!")
 
 if __name__ == "__main__":
     test_zip_upload()

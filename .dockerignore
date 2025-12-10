@@ -1,0 +1,30 @@
+# Ignore virtual environments
+.venv/
+
+# Ignore Python cache and bytecode files
+__pycache__/
+*.pyc
+
+# Ignore data directories and large model files
+data/
+models/
+
+# Ignore editor/IDE files
+.vscode/
+.idea/
+
+# Ignore log files
+*.log
+logs/
+
+# Ignore build artifacts and temporary files
+build/
+dist/
+*.egg-info/
+
+# Ignore uv specific files if not needed in build context directly
+uv.lock # This is already copied explicitly, so we don't need to copy it again via wildcard
+
+# Git ignore file itself
+.git/
+.gitignore

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from typing import List
 import logging
 from sqlalchemy.sql import func
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ def process_batch_images(self, image_paths: List[str], job_id: str):
         current_failed = 0
         current_cached = 0
 
-        for original_path in image_paths:
+        for original_path in tqdm(image_paths, desc=f"Job {job_id}"):
             image_filename = os.path.basename(original_path)
             image_bytes = None
             image_hash = None

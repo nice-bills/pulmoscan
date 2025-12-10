@@ -64,14 +64,14 @@ def export_to_onnx(model):
             output_names=['output'],
         )
     except Exception as e:
-        print(f"❌ Export failed with error: {e}")
+        print(f"Export failed with error: {e}")
         return
     
     file_size = os.path.getsize(ONNX_PATH) / (1024 * 1024)
-    print(f"✅ Export finished. Size: {file_size:.2f} MB")
+    print(f"Export finished. Size: {file_size:.2f} MB")
     
     if file_size < 10:
-        print("⚠️ WARNING: Exported model seems too small (expected ~15-20MB). Export might have failed silently or exported only parameters.")
+        print("WARNING: Exported model seems too small (expected ~15-20MB). Export might have failed silently or exported only parameters.")
 
 def quantize_onnx():
     print(f"Quantizing model to INT8: {QUANTIZED_PATH}...")
@@ -89,13 +89,13 @@ def quantize_onnx():
         quantized_size = os.path.getsize(QUANTIZED_PATH) / (1024 * 1024)
         reduction = (1 - quantized_size / original_size) * 100
         
-        print(f"✅ Quantization success!")
+        print(f"   Quantization success!")
         print(f"   Original: {original_size:.2f} MB")
         print(f"   Quantized: {quantized_size:.2f} MB")
         print(f"   Reduction: {reduction:.1f}%")
         
     except ImportError:
-        print("❌ 'onnx' or 'onnxruntime' not installed. Skipping quantization.")
+        print("'onnx' or 'onnxruntime' not installed. Skipping quantization.")
         print("   Run: uv pip install onnx onnxruntime")
 
 if __name__ == "__main__":
