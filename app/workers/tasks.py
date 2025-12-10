@@ -162,145 +162,142 @@ def process_batch_images(self, image_paths: List[str], job_id: str):
 
         images_to_infer_bytes = []
         images_to_infer_metadata = [] # Stores (original_path, hash) for non-cached images
-        predictions_to_save_db = []
+        predictions_to_add = [] # Collect all predictions (cached + inferred) for bulk add
         
         total_images_in_batch = len(image_paths)
+        
+        current_processed = 0
+        current_failed = 0
+        current_cached = 0
+
+        for original_path in image_paths:
+            image_filename = os.path.basename(original_path)
+            image_bytes = None
+            image_hash = None
+                    
+            try:
+                if not os.path.exists(original_path):
+                    raise FileNotFoundError(f"Image not found: {original_path}")
+
+                with open(original_path, "rb") as f:
+                    image_bytes = f.read()
                 
-                current_processed = 0
-                current_failed = 0
-                current_cached = 0
-        
-                # Store prediction objects to be added to DB in bulk at the end
-                predictions_to_add = []
-        
-                for original_path in image_paths:
-                    image_filename = os.path.basename(original_path)
-                    image_bytes = None
-                    image_hash = None
-                    
-                    try:
-                        if not os.path.exists(original_path):
-                            raise FileNotFoundError(f"Image not found: {original_path}")
-        
-                        with open(original_path, "rb") as f:
-                            image_bytes = f.read()
-                        
-                        image_hash = calculate_image_hash(image_bytes)
-                        cached_result = cache.get_prediction(image_hash)
-        
-                        if cached_result:
-                            prediction_data = {
-                                "class": cached_result["class"],
-                                "confidence": cached_result["confidence"],
-                                "top_3_classes": cached_result.get("top_3_classes", []),
-                                "processing_time_ms": 0.0, # Cached, instant
-                                "from_cache": True
-                            }
-                            predictions_to_add.append(Prediction(
-                                job_id=job_id,
-                                image_filename=image_filename,
-                                image_hash=image_hash,
-                                predicted_class=prediction_data["class"],
-                                confidence=prediction_data["confidence"],
-                                top_3_classes=prediction_data["top_3_classes"],
-                                processing_time_ms=prediction_data["processing_time_ms"],
-                                from_cache=True
-                            ))
-                            current_cached += 1
-                        else:
-                            images_to_infer_bytes.append(image_bytes)
-                            images_to_infer_metadata.append({
-                                "original_path": original_path,
-                                "image_filename": image_filename,
-                                "image_hash": image_hash
-                            })
-        
-                    except Exception as e:
-                        logger.error(f"Error processing image {original_path} for batch job {job_id}: {e}")
-                        current_failed += 1
-                        # Save a 'failed' prediction record
-                        predictions_to_add.append(Prediction(
-                            job_id=job_id,
-                            image_filename=image_filename if image_filename else "unknown",
-                            image_hash=image_hash if image_hash else "error",
-                            predicted_class="FAILED",
-                            confidence=0.0,
-                            top_3_classes=[],
-                            processing_time_ms=0.0,
-                            from_cache=False 
-                        ))
-                    
-                    # Update job progress after each image is processed (or failed)
-                    current_processed_total = current_cached + (len(images_to_infer_metadata)) + current_failed # Total images considered so far
-                    
-                    job.processed_images = current_processed_total - current_failed
-                    job.failed_images = current_failed
-                    job.cached_images = current_cached
-                    if job.total_images > 0 and job.processed_images > 0:
-                        job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
-                    elif job.processed_images == 0:
-                        job.cache_hit_rate = 0.0
-                    
-                    # Commit intermediate progress to allow external polling
-                    db.commit()
-                    db.refresh(job) # Refresh job object to prevent stale data in session
-        
-                # Perform Batch Inference for non-cached images
-                if images_to_infer_bytes:
-                    batch_inference_results = classifier.predict_batch(images_to_infer_bytes)
-                    
-                    for i, result in enumerate(batch_inference_results):
-                        metadata = images_to_infer_metadata[i]
-                        
-                        prediction_data = {
-                            "class": result["class"],
-                            "confidence": result["confidence"],
-                            "top_3_classes": result.get("top_3_classes", []),
-                            "processing_time_ms": result["inference_time"],
-                            "from_cache": False
-                        }
-                        
-                        # Cache the new result
-                        cache_data = prediction_data.copy()
-                        cache_data["cached_at"] = time.time()
-                        cache.set_prediction(metadata["image_hash"], cache_data)
-        
-                        predictions_to_add.append(Prediction(
-                            job_id=job_id,
-                            image_filename=metadata["image_filename"],
-                            image_hash=metadata["image_hash"],
-                            predicted_class=prediction_data["class"],
-                            confidence=prediction_data["confidence"],
-                            top_3_classes=prediction_data["top_3_classes"],
-                            processing_time_ms=prediction_data["processing_time_ms"],
-                            from_cache=False
-                        ))
-                
-                # Add all collected predictions to the session
-                if predictions_to_add:
-                    db.add_all(predictions_to_add)
-        
-                # Final Job Status Update
-                job.processed_images = total_images_in_batch - current_failed # Total successfully processed
-                job.failed_images = current_failed
-                job.cached_images = current_cached
-                
-                if job.total_images > 0 and job.processed_images > 0:
-                    job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
-                elif job.processed_images == 0:
-                    job.cache_hit_rate = 0.0
-        
-                if current_failed == total_images_in_batch:
-                    job.status = JobStatus.FAILED
-                elif current_failed > 0:
-                    job.status = JobStatus.COMPLETED # Partially completed implies completed with some failures
+                image_hash = calculate_image_hash(image_bytes)
+                cached_result = cache.get_prediction(image_hash)
+
+                if cached_result:
+                    prediction_data = {
+                        "class": cached_result["class"],
+                        "confidence": cached_result["confidence"],
+                        "top_3_classes": cached_result.get("top_3_classes", []),
+                        "processing_time_ms": 0.0, # Cached, instant
+                        "from_cache": True
+                    }
+                    predictions_to_add.append(Prediction(
+                        job_id=job_id,
+                        image_filename=image_filename,
+                        image_hash=image_hash,
+                        predicted_class=prediction_data["class"],
+                        confidence=prediction_data["confidence"],
+                        top_3_classes=prediction_data["top_3_classes"],
+                        processing_time_ms=prediction_data["processing_time_ms"],
+                        from_cache=True
+                    ))
+                    current_cached += 1
                 else:
-                    job.status = JobStatus.COMPLETED
-                    
-                job.completed_at = func.now()
-                db.commit() # Final commit
+                    images_to_infer_bytes.append(image_bytes)
+                    images_to_infer_metadata.append({
+                        "original_path": original_path,
+                        "image_filename": image_filename,
+                        "image_hash": image_hash
+                    })
+
+            except Exception as e:
+                logger.error(f"Error processing image {original_path} for batch job {job_id}: {e}")
+                current_failed += 1
+                # Save a 'failed' prediction record
+                predictions_to_add.append(Prediction(
+                    job_id=job_id,
+                    image_filename=image_filename if image_filename else "unknown",
+                    image_hash=image_hash if image_hash else "error",
+                    predicted_class="FAILED",
+                    confidence=0.0,
+                    top_3_classes=[],
+                    processing_time_ms=0.0,
+                    from_cache=False 
+                ))
+            
+            # Update job progress after each image is processed (or failed)
+            current_processed_total = current_cached + (len(images_to_infer_metadata)) + current_failed # Total images considered so far
+            
+            job.processed_images = current_processed_total - current_failed
+            job.failed_images = current_failed
+            job.cached_images = current_cached
+            if job.total_images > 0 and job.processed_images > 0:
+                job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
+            elif job.processed_images == 0:
+                job.cache_hit_rate = 0.0
+            
+            # Commit intermediate progress to allow external polling
+            db.commit()
+            db.refresh(job) # Refresh job object to prevent stale data in session
+        
+        # Perform Batch Inference for non-cached images
+        if images_to_infer_bytes:
+            batch_inference_results = classifier.predict_batch(images_to_infer_bytes)
+            
+            for i, result in enumerate(batch_inference_results):
+                metadata = images_to_infer_metadata[i]
                 
-                return job.status.value
+                prediction_data = {
+                    "class": result["class"],
+                    "confidence": result["confidence"],
+                    "top_3_classes": result.get("top_3_classes", []),
+                    "processing_time_ms": result["inference_time"],
+                    "from_cache": False
+                }
+                
+                # Cache the new result
+                cache_data = prediction_data.copy()
+                cache_data["cached_at"] = time.time()
+                cache.set_prediction(metadata["image_hash"], cache_data)
+
+                predictions_to_add.append(Prediction(
+                    job_id=job_id,
+                    image_filename=metadata["image_filename"],
+                    image_hash=metadata["image_hash"],
+                    predicted_class=prediction_data["class"],
+                    confidence=prediction_data["confidence"],
+                    top_3_classes=prediction_data["top_3_classes"],
+                    processing_time_ms=prediction_data["processing_time_ms"],
+                    from_cache=False
+                ))
+        
+        # Add all collected predictions to the session
+        if predictions_to_add:
+            db.add_all(predictions_to_add)
+
+        # Final Job Status Update
+        job.processed_images = total_images_in_batch - current_failed # Total successfully processed
+        job.failed_images = current_failed
+        job.cached_images = current_cached
+        
+        if job.total_images > 0 and job.processed_images > 0:
+            job.cache_hit_rate = (job.cached_images / job.processed_images) * 100
+        elif job.processed_images == 0:
+            job.cache_hit_rate = 0.0
+
+        if current_failed == total_images_in_batch:
+            job.status = JobStatus.FAILED
+        elif current_failed > 0:
+            job.status = JobStatus.COMPLETED # Partially completed implies completed with some failures
+        else:
+            job.status = JobStatus.COMPLETED
+            
+        job.completed_at = func.now()
+        db.commit() # Final commit
+        
+        return job.status.value
 
     except Exception as e:
         logger.error(f"Unhandled error in batch job {job_id}: {e}")
