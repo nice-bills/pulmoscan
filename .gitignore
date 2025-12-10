@@ -48,3 +48,6 @@ htmlcov/
 
 GEMINI.md
 PROJECT_RETROSPECTIVE.md
+
+# Temp Test Dirs
+temp_*/
