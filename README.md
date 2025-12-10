@@ -31,19 +31,19 @@ The system follows a microservices pattern orchestrated via Docker Compose:
 
 ```mermaid
 graph LR
-    Client([User/Client]) -->|Upload ZIP/Image| API[FastAPI Server]
-    API -->|Save File| MinIO[(MinIO S3)]
-    API -->|Dispatch Task| Redis[(Redis Broker)]
+    Client([User/Client]) -->|"Upload ZIP/Image"| API[FastAPI Server]
+    API -->|"Save File"| MinIO[("MinIO S3")]
+    API -->|"Dispatch Task"| Redis[("Redis Broker")]
     
     subgraph Worker Node
-        Worker[Celery Worker] -->|Fetch Task| Redis
-        Worker -->|Download Image| MinIO
-        Worker -->|Inference (ONNX)| Model[MobileNetV3]
+        Worker[Celery Worker] -->|"Fetch Task"| Redis
+        Worker -->|"Download Image"| MinIO
+        Worker -->|"Inference (ONNX)"| Model["MobileNetV3"]
     end
     
-    Worker -->|Save Result| DB[(PostgreSQL)]
-    API -->|Poll Status| DB
-    API -->|Get Cache| Redis
+    Worker -->|"Save Result"| DB[("PostgreSQL")]
+    API -->|"Poll Status"| DB
+    API -->|"Get Cache"| Redis
 ```
 
 ---
