@@ -18,6 +18,7 @@ import os
 import zipfile
 import io
 import pandas as pd
+from app.config import settings
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
@@ -114,7 +115,7 @@ async def batch_classify_images(
             "job_id": job_id,
             "message": "Batch processing started.",
             "images_queued": len(extracted_images),
-            "status_url": f"/api/v1/jobs/{job_id}"
+            "status_url": f"{settings.API_V1_STR}/jobs/{job_id}"
         }
 
     except zipfile.BadZipFile:
