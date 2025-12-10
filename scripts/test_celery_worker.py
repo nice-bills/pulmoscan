@@ -60,7 +60,7 @@ def test_worker():
             time.sleep(2)
     
     if not task_dispatched:
-        print("   ❌ Failed to dispatch task after 5 attempts.")
+        print("    Failed to dispatch task after 5 attempts.")
         return
 
     # 4. Monitor
@@ -77,17 +77,17 @@ def test_worker():
         print(f"   [{i+1}/{max_retries}] Job Status: {status}")
         
         if status == JobStatus.COMPLETED:
-            print("\n✅ SUCCESS: Job marked as COMPLETED by worker!")
+            print("\nSUCCESS: Job marked as COMPLETED by worker!")
             success = True
             break
         elif status == JobStatus.FAILED:
-            print("\n❌ FAILURE: Job marked as FAILED.")
+            print("\nFAILURE: Job marked as FAILED.")
             break
             
         time.sleep(1)
 
     if not success:
-        print("\n⚠️ TIMEOUT: Job did not complete in time. Is the worker running?")
+        print("\nTIMEOUT: Job did not complete in time. Is the worker running?")
 
     # 5. Cleanup
     if os.path.exists(img_path):

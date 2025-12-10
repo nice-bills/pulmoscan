@@ -66,7 +66,7 @@ def test_csv_export():
         csv_resp = requests.get(export_url)
         
         if csv_resp.status_code == 200:
-            print("   ✅ CSV Downloaded successfully.")
+            print("    CSV Downloaded successfully.")
             # Verify content
             csv_content = csv_resp.text
             print(f"   Content Length: {len(csv_content)} bytes")
@@ -74,19 +74,19 @@ def test_csv_export():
             # Parse with pandas to verify structure
             try:
                 df = pd.read_csv(io.StringIO(csv_content))
-                print("   ✅ CSV Parsed successfully with Pandas.")
+                print("    CSV Parsed successfully with Pandas.")
                 print("   Columns:", df.columns.tolist())
                 print(f"   Rows: {len(df)}")
                 
                 if len(df) == 3 and "predicted_class" in df.columns:
-                    print("   ✅ Data validation passed.")
+                    print("    Data validation passed.")
                 else:
-                    print("   ❌ Data validation failed.")
+                    print("    Data validation failed.")
             except Exception as e:
-                print(f"   ❌ CSV Parsing failed: {e}")
+                print(f"    CSV Parsing failed: {e}")
                 print(csv_content)
         else:
-            print(f"   ❌ Download failed: {csv_resp.status_code}")
+            print(f"    Download failed: {csv_resp.status_code}")
             print(csv_resp.text)
 
     finally:
