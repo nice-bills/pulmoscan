@@ -33,20 +33,45 @@ def export_to_onnx(model):
     dummy_input = torch.randn(1, 3, 224, 224)
     
     # Export
-    torch.onnx.export(
-        model,
-        dummy_input,
-        ONNX_PATH,
-        export_params=True,
-        opset_version=13,
-        do_constant_folding=True,
-        input_names=['input'],
-        output_names=['output'],
-        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
-    )
+    # Using opset_version=12 to attempt to force legacy export behavior
+    # and avoid the 0.22MB empty graph issue.
+    # Explicitly setting dynamo=False to use legacy TorchScript exporter
+    print(f"PyTorch Version: {torch.__version__}")
+    try:
+        torch.onnx.export(
+            model,
+            dummy_input,
+            ONNX_PATH,
+            export_params=True,
+            opset_version=12, 
+            do_constant_folding=True,
+            input_names=['input'],
+            output_names=['output'],
+            dynamo=False
+            # dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}} 
+        )
+    except TypeError:
+        # Fallback if dynamo arg is not supported (older torch versions)
+        print("dynamo=False not supported, retrying without it...")
+        torch.onnx.export(
+            model,
+            dummy_input,
+            ONNX_PATH,
+            export_params=True,
+            opset_version=12, 
+            do_constant_folding=True,
+            input_names=['input'],
+            output_names=['output'],
+        )
+    except Exception as e:
+        print(f"❌ Export failed with error: {e}")
+        return
     
     file_size = os.path.getsize(ONNX_PATH) / (1024 * 1024)
-    print(f"✅ Export success! Size: {file_size:.2f} MB")
+    print(f"✅ Export finished. Size: {file_size:.2f} MB")
+    
+    if file_size < 10:
+        print("⚠️ WARNING: Exported model seems too small (expected ~15-20MB). Export might have failed silently or exported only parameters.")
 
 def quantize_onnx():
     print(f"Quantizing model to INT8: {QUANTIZED_PATH}...")

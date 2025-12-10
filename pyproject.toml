@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.124.0",
     "onnx>=1.20.0",
     "onnxruntime>=1.23.2",
+    "onnxscript>=0.5.6",
     "pandas>=2.3.3",
     "psycopg2>=2.9.11",
     "pydantic-settings>=2.12.0",
